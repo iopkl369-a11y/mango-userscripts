@@ -1,0 +1,7 @@
+{
+  "companyPhone": "01000000000",
+  "codes": [
+    { "code": "ㅏ", "platform": "무신사", "name": "홍길동", "pay": "카드" },
+    { "code": "ㅑ", "platform": "네이버", "name": "홍길동", "pay": "포인트" }
+  ]
+}

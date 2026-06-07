@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>더망고 유저스크립트 설치</title>
+<style>
+  body { font: 15px/1.65 -apple-system, "Apple SD Gothic Neo", sans-serif; color: #1c1e22;
+         max-width: 760px; margin: 0 auto; padding: 28px 18px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 30px 0 10px; border-bottom: 2px solid #eee; padding-bottom: 6px; }
+  .sub { color: #666; margin: 0 0 18px; }
+  .step { background: #f6f8fa; border: 1px solid #e7ebef; border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+  .step b { color: #1f7a3d; }
+  a.btn { display: inline-block; background: #2f6fed; color: #fff; text-decoration: none;
+          padding: 7px 14px; border-radius: 8px; margin: 4px 6px 4px 0; font-size: 14px; }
+  a.btn.gray { background: #555; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
+  th, td { border: 1px solid #e2e6ea; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f2f4f7; }
+  code { background: #eef0f3; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+  .warn { background: #fff6e5; border: 1px solid #ffd591; border-radius: 10px; padding: 12px 14px; }
+</style>
+</head>
+<body>
+
+<h1>더망고 유저스크립트 설치</h1>
+<p class="sub">팀 공용 발주 자동화 스크립트. 아래 순서대로 한 번만 설치하면 됩니다. 이후 업데이트는 자동.</p>
+
+<h2>1. Tampermonkey 설치 (브라우저별 1회)</h2>
+<div class="step">
+  쓰는 브라우저에 Tampermonkey 확장을 설치하세요.
+  <div>
+    <a class="btn" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Chrome · Edge · Brave</a>
+    <a class="btn gray" href="https://addons.mozilla.org/firefox/addon/tampermonkey/" target="_blank">Firefox</a>
+    <a class="btn gray" href="https://apps.apple.com/app/tampermonkey/id1482490089" target="_blank">Safari</a>
+  </div>
+</div>
+
+<h2>2. 스크립트 설치 (링크 클릭 → "설치")</h2>
+<p class="sub">각 링크를 누르면 Tampermonkey 설치 화면이 뜹니다. <b>설치</b>를 누르세요. 브라우저 분리 규칙에 맞춰 필요한 것만 설치.</p>
+<table>
+  <tr><th>스크립트</th><th>설치 브라우저</th><th>설치</th></tr>
+  <tr><td><b>⚙ 팀 설정</b> (필수·먼저)</td><td>쓰는 브라우저 전부</td><td><a href="https://raw.githubusercontent.com/iopkl369-a11y/mango-userscripts/main/scripts/mango_config.user.js">설치</a></td></tr>
+  <tr><td>간단입력 + 한방캡처 (Opt+W/Q)</td><td>전부</td><td><a href="https://raw.githubusercontent.com/iopkl369-a11y/mango-userscripts/main/scripts/mango_memo.user.js">설치</a></td></tr>
+  <tr><td>무신사 주소입력 (Alt+A)</td><td>Edge</td><td><a href="https://raw.githubusercontent.com/iopkl369-a11y/mango-userscripts/main/scripts/mango_order_musinsa.user.js">설치</a></td></tr>
+  <tr><td>SSG 주소입력 (Alt+A)</td><td>Brave</td><td><a href="https://raw.githubusercontent.com/iopkl369-a11y/mango-userscripts/main/scripts/mango_order_ssg.user.js">설치</a></td></tr>
+  <tr><td>네이버 주소입력 (Alt+A)</td><td>Chrome / Brave</td><td><a href="https://raw.githubusercontent.com/iopkl369-a11y/mango-userscripts/main/scripts/mango_order_naver.user.js">설치</a></td></tr>
+  <tr><td>무신사 주문완료 광고 스킵</td><td>무신사 쓰는 브라우저</td><td><a href="https://raw.githubusercontent.com/iopkl369-a11y/mango-userscripts/main/scripts/mango_skip_musinsa_ad.user.js">설치</a></td></tr>
+</table>
+
+<h2>3. 팀 설정값 입력 (브라우저별 1회)</h2>
+<div class="step">
+  망고 사이트(더망고·무신사·SSG·네이버) 아무 페이지나 열면 <b>좌하단에 ⚙ 망고설정</b> 버튼이 보입니다.<br>
+  클릭 → 팀 채팅으로 받은 <b>설정 JSON</b>을 붙여넣고 <b>저장</b>. (코드표·회사번호 — 이 값은 공개되지 않고 각자 브라우저에만 저장됩니다)
+</div>
+<div class="warn">
+  ⚠ 설정값(실명·번호)은 공개 저장소에 없습니다. 반드시 <b>팀 채팅으로 받은 JSON</b>을 붙여넣어야 코드표·회사번호가 동작합니다.
+</div>
+
+<h2>업데이트</h2>
+<p>스크립트가 개선되면 Tampermonkey가 자동으로 가져옵니다(수동 재설치 불필요). 즉시 받으려면 Tampermonkey 대시보드 → 유틸리티 → "스크립트 업데이트 확인".</p>
+
+<h2>안 될 때</h2>
+<ul>
+  <li>설치 링크가 그냥 텍스트로 열리면: Tampermonkey가 아직 설치 안 됨(1단계) 또는 비활성.</li>
+  <li>좌하단 ⚙ 버튼이 ⚠ 표시면: 설정 JSON 미입력(3단계).</li>
+  <li>단축키 Mac=Option, Windows=Alt.</li>
+</ul>
+
+</body>
+</html>
