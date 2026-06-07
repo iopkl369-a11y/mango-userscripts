@@ -8,12 +8,12 @@
 
 | 파일 | 단축키 | 설치 브라우저 | 기능 |
 |---|---|---|---|
-| `mango_config.user.js` | — | 전부 | **팀 설정(코드표·회사번호)** 입력 UI. 좌하단 ⚙ 버튼. 다른 스크립트가 이 값을 읽음 |
-| `mango_memo.user.js` | Opt+W / Opt+Q | 전부 | 출처 사이트 한방캡처(주문번호·금액·결제일시) + 더망고 간단입력 |
-| `mango_order_musinsa.user.js` | Alt+A | Edge | 무신사 배송지 한방입력(+카카오 우편번호) |
-| `mango_order_ssg.user.js` | Alt+A / Alt+D | Brave | SSG 배송지 한방입력 |
-| `mango_order_naver.user.js` | Alt+A / Alt+D | Chrome/Brave | 네이버페이 배송지 한방입력 |
-| `mango_skip_musinsa_ad.user.js` | — | 무신사 쓰는 곳 | 주문완료 광고 오버레이 즉시 스킵 |
+| `mango_config.user.js` | — | 쓰는 브라우저 전부 | **팀 설정(코드표·회사번호)** 입력 UI. 좌하단 ⚙ 버튼. 다른 스크립트가 이 값을 읽음 |
+| `mango_memo.user.js` | Opt(Alt)+W / Opt(Alt)+Q | 쓰는 브라우저 전부 | 출처 사이트 한방캡처(주문번호·금액·결제일시) + 더망고 간단입력 |
+| `mango_order_musinsa.user.js` | Opt(Alt)+A | 무신사 쓰는 브라우저 | 무신사 배송지 한방입력(+카카오 우편번호) |
+| `mango_order_ssg.user.js` | Opt(Alt)+A / Opt(Alt)+D | SSG 쓰는 브라우저 | SSG 배송지 한방입력 |
+| `mango_order_naver.user.js` | Opt(Alt)+A / Opt(Alt)+D | 네이버 쓰는 브라우저 | 네이버페이 배송지 한방입력 |
+| `mango_skip_musinsa_ad.user.js` | — | 무신사 쓰는 브라우저 | 주문완료 광고 오버레이 즉시 스킵 |
 
 ## 민감정보 분리 (중요)
 
