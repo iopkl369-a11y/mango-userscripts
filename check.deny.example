@@ -1,0 +1,6 @@
+# PII 차단 목록 예시 — 이 파일을 복사해 check.deny 로 만들고 실제 값을 채운다.
+#   cp check.deny.example check.deny
+# check.deny 는 .gitignore 되어 공개되지 않는다. 한 줄에 한 토큰, #은 주석.
+# 예:
+# 홍길동
+# 01012345678
