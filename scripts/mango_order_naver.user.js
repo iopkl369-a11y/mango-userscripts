@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.2
+// @version      0.4.3
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -702,6 +702,11 @@
 
   function showNaverBadge() {
     if (window.top !== window) return;
+    if (/^\/authentication\//.test(location.pathname)) { // 결제 비밀번호/인증 페이지엔 배지 안 띄움
+      const old = document.getElementById('mo-badge');
+      if (old) old.remove();                             // SPA 이동 후 남은 배지 정리
+      return;
+    }
     const raw = GM_getValue(STORE_KEY, '');
     let b = document.getElementById('mo-badge');
     if (!b) {

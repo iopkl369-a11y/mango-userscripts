@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         더망고 팀 설정 (코드표·회사번호)
 // @namespace    mango_order
-// @version      1.0.0
-// @description  팀 공통 설정값(결제자 코드표·회사번호)을 한 번만 붙여넣어 저장하면 다른 망고 스크립트가 읽어 쓴다. 민감정보(실명·번호)는 공개 코드에 없고 이 설정(브라우저 로컬)에만 들어간다. 모든 망고 사이트 좌하단 "⚙ 망고설정" 버튼으로 편집.
+// @version      1.1.0
+// @description  팀 공통 설정값(결제자 코드표·회사번호)을 한 번만 붙여넣어 저장하면 다른 망고 스크립트가 읽어 쓴다. 민감정보(실명·번호)는 공개 코드에 없고 이 설정(브라우저 로컬)에만 들어간다. 설정 완료 시 좌하단 버튼은 숨기며, Alt+Shift+M로 편집기를 다시 연다(미설정 시 ⚠ 버튼 표시).
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
 // @match        https://www.musinsa.com/*
@@ -98,7 +98,9 @@
   }
 
   function renderButton() {
+    const ok = (parseConfig().codes || []).length > 0;
     let btn = document.getElementById('mango-cfg-btn');
+    if (ok) { if (btn) btn.remove(); return; } // 설정 완료 시 버튼 숨김 (Alt+Shift+M로 편집)
     if (!btn) {
       btn = document.createElement('button');
       btn.id = 'mango-cfg-btn';
@@ -108,10 +110,14 @@
       btn.onclick = openEditor;
       document.body.appendChild(btn);
     }
-    const ok = (parseConfig().codes || []).length > 0;
-    btn.textContent = (ok ? '⚙ 망고설정' : '⚙ 망고설정 ⚠') + '  ' + statusText();
-    btn.title = ok ? '팀 설정 편집' : '팀 설정값이 비어 있습니다 — 클릭해 붙여넣기';
+    btn.textContent = '⚙ 망고설정 ⚠  ' + statusText();
+    btn.title = '팀 설정값이 비어 있습니다 — 클릭해 붙여넣기 (Alt+Shift+M)';
   }
+
+  // 배지가 숨겨져 있어도 편집기를 다시 열 수 있게 — Alt+Shift+M
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey && e.shiftKey && e.code === 'KeyM') { e.preventDefault(); openEditor(); }
+  }, true);
 
   function init() { mirror(); renderButton(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
