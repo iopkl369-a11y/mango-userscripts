@@ -31,5 +31,8 @@ GM 저장값을 각 도메인 localStorage로 미러합니다.
 
 ## 개발
 
-원본은 `~/projects/mango_order/userscript/`. 여기 `scripts/`는 PII를 분리한 배포본입니다.
-수정 후 `node --check scripts/*.user.js`로 문법 확인, version 올리고 push하면 배포됩니다.
+이 저장소의 `scripts/`가 **유일한 원본**입니다(PII는 코드에 없음 — `mango_config`로 분리).
+수정 후 `./check.sh`(또는 `node --check scripts/*.user.js`)로 문법·PII 검증, version 올리고 push하면 배포됩니다.
+
+상세 사용법·셀렉터·규칙 참조 → [`USAGE.md`](USAGE.md).
+배송지 정리·안심번호 규칙은 별도 repo `mango_order`의 `src/musinsa_order.py`와 공유 — 한쪽 고치면 양쪽.
