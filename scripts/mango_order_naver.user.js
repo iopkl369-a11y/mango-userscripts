@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.3
+// @version      0.4.4
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -295,23 +295,10 @@
   function cleanDetailAddress(detail) {
     const raw = (detail || '').trim();
     if (!raw) return '';
-    const re = /\([^)]*\)/g;
-    const matches = [];
-    let m;
-    while ((m = re.exec(raw)) !== null) matches.push({ text: m[0], start: m.index, end: m.index + m[0].length });
-    if (matches.length === 0) return raw;
-    const n = matches.length;
-    let out = '';
-    let last = 0;
-    matches.forEach((mt, i) => {
-      const content = mt.text.slice(1, -1).trim();
-      const keep = (n >= 2 && i === 0) || (!looksLikePlaceOrBuilding(content));
-      out += raw.slice(last, mt.start);
-      if (keep) out += mt.text;
-      last = mt.end;
-    });
-    out += raw.slice(last);
-    return out.replace(/\s{2,}/g, ' ').trim();
+    // 괄호 안이 법정동/건물명이면 위치 무관 삭제. 지명·건물 키워드 없는 고객 메모는 보존.
+    return raw.replace(/\([^)]*\)/g, (m) =>
+      looksLikePlaceOrBuilding(m.slice(1, -1).trim()) ? '' : m
+    ).replace(/\s{2,}/g, ' ').trim();
   }
 
   // ── 1) 더망고: 주문정보에서 배송지 자동 담기 (무신사/SSG와 동일) ──────────────

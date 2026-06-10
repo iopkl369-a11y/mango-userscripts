@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 SSG 주소 진단 (Brave 전용)
 // @namespace    mango_order
-// @version      0.25.0
+// @version      0.25.1
 // @description  더망고 주문정보의 배송지를 담고, SSG '배송지 추가' 폼에서 Alt+A로 주소별칭 '직접입력' 전환→수령인·주소별칭·휴대폰(회사번호 고정)·상세주소 입력 + 우편번호 팝업 자동검색(괄호 제거·찾기 실행). 배송지 변경 후 결제화면 '택배배송 요청사항'에 배송메모 자동입력. 결제화면에서 Alt+A는 '주문자 정보 변경' 팝업을 열어 주문자명을 수령인명으로 교체. Alt+D는 폼 진단 덤프. ※ '새 배송지 추가'는 직접 누르고 폼에서 Alt+A. ※ Brave 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][ssg] v0.25.0 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][ssg] v0.25.1 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -142,23 +142,10 @@
   function cleanDetailAddress(detail) {
     const raw = (detail || '').trim();
     if (!raw) return '';
-    const re = /\([^)]*\)/g;
-    const matches = [];
-    let m;
-    while ((m = re.exec(raw)) !== null) matches.push({ text: m[0], start: m.index, end: m.index + m[0].length });
-    if (matches.length === 0) return raw;
-    const n = matches.length;
-    let out = '';
-    let last = 0;
-    matches.forEach((mt, i) => {
-      const content = mt.text.slice(1, -1).trim();
-      const keep = (n >= 2 && i === 0) || (!looksLikePlaceOrBuilding(content));
-      out += raw.slice(last, mt.start);
-      if (keep) out += mt.text;
-      last = mt.end;
-    });
-    out += raw.slice(last);
-    return out.replace(/\s{2,}/g, ' ').trim();
+    // 괄호 안이 법정동/건물명이면 위치 무관 삭제. 지명·건물 키워드 없는 고객 메모는 보존.
+    return raw.replace(/\([^)]*\)/g, (m) =>
+      looksLikePlaceOrBuilding(m.slice(1, -1).trim()) ? '' : m
+    ).replace(/\s{2,}/g, ' ').trim();
   }
 
   // ── 1) 더망고: 주문정보에서 배송지 자동 담기 ─────────────────────────────────

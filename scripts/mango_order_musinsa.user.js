@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 무신사 주소 한방입력 (Edge 전용)
 // @namespace    mango_order
-// @version      0.9.2
+// @version      0.9.3
 // @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. ※ Edge 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][musinsa] v0.9.2 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][musinsa] v0.9.3 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 무신사는 안심번호(050x)를 못 받으므로 회사 번호로 대체. 회사번호는 팀 설정값에서 읽는다
@@ -81,23 +81,10 @@
   function cleanDetailAddress(detail) {
     const raw = (detail || '').trim();
     if (!raw) return '';
-    const re = /\([^)]*\)/g;
-    const matches = [];
-    let m;
-    while ((m = re.exec(raw)) !== null) matches.push({ text: m[0], start: m.index, end: m.index + m[0].length });
-    if (matches.length === 0) return raw;
-    const n = matches.length;
-    let out = '';
-    let last = 0;
-    matches.forEach((mt, i) => {
-      const content = mt.text.slice(1, -1).trim();
-      const keep = (n >= 2 && i === 0) || (!looksLikePlaceOrBuilding(content));
-      out += raw.slice(last, mt.start);
-      if (keep) out += mt.text;
-      last = mt.end;
-    });
-    out += raw.slice(last);
-    return out.replace(/\s{2,}/g, ' ').trim();
+    // 괄호 안이 법정동/건물명이면 위치 무관 삭제. 지명·건물 키워드 없는 고객 메모는 보존.
+    return raw.replace(/\([^)]*\)/g, (m) =>
+      looksLikePlaceOrBuilding(m.slice(1, -1).trim()) ? '' : m
+    ).replace(/\s{2,}/g, ' ').trim();
   }
 
   /** selector가 나타날 때까지 폴링 */
