@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 간단입력 (주문번호·금액·간단메모)
 // @namespace    mango_order
-// @version      0.8.1
+// @version      0.8.2
 // @description  무신사/SSG/네이버에서 주문번호·금액·결제일시를 복사하면(copy 이벤트로 자동 캡처), 더망고 주문목록(admin_getorder.php)에서 칸을 클릭한 행에 단축키(Alt+Q) 한 번으로 상품주문번호·구입금액·간단메모(결제자코드+결제일시)+주문상태(쿠팡=배송지입고완료/그외=해외현지배송중)+쿠팡건 택배사(삼성SDS)·송장(랜덤12자리)를 채운다. 쿠팡건은 송장 입력 직후 상단 "송장번호 마켓전송" 버튼을 자동 클릭한다. 나머지 저장/제출은 사람이 직접. 출처 사이트에서 Alt+W=한방캡처(주문번호·금액·결제일시 동시), Alt+S=캡처 진단(DOM 덤프). 무신사는 주문상세에서 Alt+W 시 거래명세서를 백그라운드로 읽어 3값 캡처, 네이버는 주문완료 결제상세칸(접히면 펼쳐서)에서 3값 캡처. ※ 기존 주소입력 스크립트와 병행 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -449,8 +449,12 @@
       const txt = detail.textContent || '';
       const md = txt.match(/승인일시\s*[:：]?\s*(\d{4}\.\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2})/); // 결제(승인)일시
       if (md) dt = md[1];
-      const ma = txt.match(/(\d{1,3}(?:,\d{3})+)\s*원/); // 결제상세 첫 금액 = 최종결제액(…간편결제 …원)
-      if (ma) amt = ma[1];
+      // 금액: 결제수단 줄(카드 간편결제 등)은 승인일시 바로 위에 온다. '카드사 결제 할인' 같은
+      // 차감줄이 위에 끼면 첫 금액이 할인액이 되므로, 승인일시 직전의 '마지막' 금액을 실결제액으로 쓴다.
+      const apIdx = txt.search(/승인일시/);
+      const before = apIdx >= 0 ? txt.slice(0, apIdx) : txt;
+      const amts = [...before.matchAll(/(\d{1,3}(?:,\d{3})+)\s*원/g)];
+      if (amts.length) amt = amts[amts.length - 1][1];
     }
 
     const got = [], miss = [];
