@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.4
+// @version      0.4.5
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][naver] v0.4.2 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][naver] v0.4.5 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -76,6 +76,33 @@
   /** 주소검색어 — 괄호 '(송도동, …)' 제거 (SSG ssgSearchKeyword와 동일 취지) */
   function searchKeyword(addr) {
     return (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  /** address1이 번지/도로명 없이 '…동/리' 등으로 끝나는 불완전 주소인가 (무신사/SSG 스크립트와 동일) */
+  function isIncompleteAddr1(addr) {
+    const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    if (/(로|길)\s*\d/.test(t)) return false;                          // 도로명+건물번호 있음
+    if (/[가-힣0-9](동|리|읍|면|가)\s*(산\s*)?\d/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
+    return true;
+  }
+
+  /** 불완전 address1을 상세주소의 도로명/번지로 보완(o를 직접 수정). 보완 불가면 ok=false.
+   *  ⚠️ 불완전 주소('…동')로 그대로 검색하면 엉뚱한 주소가 선택·입력되므로, 보완 실패 시 반드시 중단한다. */
+  function fixIncompleteAddr(o) {
+    const a1 = (o.주소 || '').trim();
+    if (!isIncompleteAddr1(a1)) return { ok: true, fixed: false };
+    const d = (o.상세주소 || '').trim();
+    const road = d.match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
+    const jibun = road ? null : d.match(/((?:산\s*)?\d+(?:-\d+)?\s*번지)/);
+    const m = road || jibun;
+    if (!m) return { ok: false, fixed: false };
+    // 도로명 보완이면 끝의 행정동/리 토큰을 뗀다(도로명과 섞이면 검색이 깨짐).
+    // 번지 보완이면 동/리를 남긴다(지번은 동/리가 있어야 위치가 특정됨).
+    let base = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (road) base = base.replace(/\s*[가-힣0-9]+(동|리|읍|면|가)$/, '').trim();
+    o.주소 = (base + ' ' + m[1]).trim();
+    o.상세주소 = d.replace(m[1], '').replace(/\s{2,}/g, ' ').trim(); // 보완에 쓴 토큰은 상세주소에서 제거(중복 방지)
+    return { ok: true, fixed: true };
   }
 
   /** 여러 라벨 후보 중 먼저 찾히는 클릭 대상 반환 */
@@ -203,7 +230,7 @@
     // 상세주소: ⓑ→ⓒ로 전달됐으면 채워져 있음. 비어 있으면(전달 실패) ⓒ에서 직접 입력.
     // (execCommand는 ⓒ에서도 정상 인식 — 옛 setNativeValue로 깨지던 것과 다름)
     const dt = Q('#address-detail');
-    if (dt && !(dt.value || '').trim()) await fillStep('#address-detail', cleanDetailAddress(o.상세주소));
+    if (dt && !(dt.value || '').trim()) await fillStep('#address-detail', detailOrDash(o));
   }
 
   /** 버튼이 비활성(disabled/aria-disabled/클래스) 상태인가 */
@@ -300,6 +327,9 @@
       looksLikePlaceOrBuilding(m.slice(1, -1).trim()) ? '' : m
     ).replace(/\s{2,}/g, ' ').trim();
   }
+
+  /** 입력용 상세주소 — 비어 있으면 '-' (상세주소가 비면 다음 단계로 못 넘어가 흐름이 멈춤) */
+  const detailOrDash = (o) => cleanDetailAddress(o.상세주소) || '-';
 
   // ── 1) 더망고: 주문정보에서 배송지 자동 담기 (무신사/SSG와 동일) ──────────────
   /** 라벨 텍스트가 일치하는 칸의 같은 행/다음 칸 input 값을 찾는다(필드명 모를 때 폴백). */
@@ -597,6 +627,11 @@
     if (!raw) { toast('담긴 주문이 없어요.\n더망고 주문정보를 먼저 여세요.', false); return; }
     const o = JSON.parse(raw);
 
+    // 0) 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 못 하면 중단(오주소 입력 방지).
+    const fx = fixIncompleteAddr(o);
+    if (!fx.ok) { toast(`주소가 불완전해요(번지/도로명 없음): ${o.주소}\n상세주소에서도 못 찾아 중단 — 직접 입력하세요.`, false); return; }
+    if (fx.fixed) toast(`불완전 주소 보완 검색: ${o.주소}`);
+
     // 1) 주소가 선택된 단계(#address-detail 존재)에 도달시킨다.
     //    네이버: '배송지 신규입력' → 주소검색 → 도로명 선택 → ⓑ'상세주소를 알려주세요'(#address-detail).
     if (!Q('#address-detail')) {
@@ -616,7 +651,7 @@
       // 이미 수령인 폼인데 주소가 안 잡혔으면 주소검색만 다시 진행
       const addrBox = Q('.InputDeliveryAddress_address__P__9H');
       if ((!addrBox || !hasZip(addrBox.textContent)) && !await naverAddressSearch(o)) {
-        setNativeValue(Q('#address-detail'), cleanDetailAddress(o.상세주소));
+        setNativeValue(Q('#address-detail'), detailOrDash(o));
         toast('주소 자동검색 실패 — 주소검색에서 직접 선택 후 저장하세요.\n(상세주소는 채워둠)', false);
         return;
       }
@@ -627,7 +662,7 @@
     const dtB = await waitFor(document, '#address-detail', 4000);
     if (dtB) {
       realClick(dtB);
-      await typeReact(dtB, cleanDetailAddress(o.상세주소), true);
+      await typeReact(dtB, detailOrDash(o), true);
       dtB.dispatchEvent(new Event('blur', { bubbles: true })); // 확인 전 commit 유도
       await sleep(300);
     }
@@ -669,13 +704,23 @@
     const memo = (o.배송메모 || '').trim();
     if (!memo) { toast('배송요청사항이 없어 건너뜁니다.\n(필요하면 직접 선택하세요)'); return; }
 
-    // 1) '배송메모를 선택해주세요' 드롭다운 열기
-    const opener = findByTextContains(/배송메모를 선택해주세요|배송메모/) || findClickableByText('배송메모를 선택해주세요');
+    // 0) '출입방법을 설정할 수 있어요'가 떠 있으면 요청사항 입력이 안 먹는다
+    //    → 그 링크를 눌러 설정 화면을 열어주고 중단. 설정 완료 후 다시 Alt+A 하면 정상 진행.
+    const entry = findByTextContains(/출입방법을 설정할 수 있어요/);
+    if (entry) {
+      realClick(entry); try { entry.click(); } catch (e) { /* noop */ }
+      toast("'출입방법 설정'을 먼저 완료해주세요.\n완료 후 다시 Alt+A.", false);
+      return;
+    }
+
+    // 1) '배송메모를 선택해주세요' 드롭다운 열기 (출입방법 설정 유무에 따라 '추가 요청사항…'으로 뜨기도 함)
+    const opener = findByTextContains(/배송메모를 선택해주세요|배송메모|추가\s*요청사항/) || findClickableByText('배송메모를 선택해주세요');
     if (!opener) { toast("'배송메모' 칸을 못 찾았어요 — 직접 선택하세요.", false); return; }
     realClick(opener); try { opener.click(); } catch (e) { /* noop */ }
 
-    // 2) 모달에서 '직접 입력하기'
-    const direct = await waitForText('직접 입력하기', 4000);
+    // 2) 모달에서 '직접 입력하기' (모달에 따라 '직접 입력' 등 변형 라벨 폴백)
+    let direct = await waitForText('직접 입력하기', 4000);
+    if (!direct) direct = findClickableByTextAny(['직접입력하기', '직접 입력', '직접입력']);
     if (!direct) { toast("'직접 입력하기'를 못 찾았어요 — 직접 선택하세요.", false); return; }
     realClick(direct); try { direct.click(); } catch (e) { /* noop */ }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 SSG 주소 진단 (Brave 전용)
 // @namespace    mango_order
-// @version      0.25.1
+// @version      0.25.2
 // @description  더망고 주문정보의 배송지를 담고, SSG '배송지 추가' 폼에서 Alt+A로 주소별칭 '직접입력' 전환→수령인·주소별칭·휴대폰(회사번호 고정)·상세주소 입력 + 우편번호 팝업 자동검색(괄호 제거·찾기 실행). 배송지 변경 후 결제화면 '택배배송 요청사항'에 배송메모 자동입력. 결제화면에서 Alt+A는 '주문자 정보 변경' 팝업을 열어 주문자명을 수령인명으로 교체. Alt+D는 폼 진단 덤프. ※ '새 배송지 추가'는 직접 누르고 폼에서 Alt+A. ※ Brave 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][ssg] v0.25.1 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][ssg] v0.25.2 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -67,6 +67,33 @@
   /** SSG 우편번호 검색어 — 주소에서 괄호 '(금곡동, …아파트)'를 제거(있으면 검색 실패) */
   function ssgSearchKeyword(addr) {
     return (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  /** address1이 번지/도로명 없이 '…동/리' 등으로 끝나는 불완전 주소인가 (네이버/무신사 스크립트와 동일) */
+  function isIncompleteAddr1(addr) {
+    const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    if (/(로|길)\s*\d/.test(t)) return false;                          // 도로명+건물번호 있음
+    if (/[가-힣0-9](동|리|읍|면|가)\s*(산\s*)?\d/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
+    return true;
+  }
+
+  /** 불완전 address1을 상세주소의 도로명/번지로 보완(o를 직접 수정). 보완 불가면 ok=false.
+   *  ⚠️ 불완전 주소('…동')로 그대로 검색하면 엉뚱한 주소가 선택·입력되므로, 보완 실패 시 반드시 중단한다. */
+  function fixIncompleteAddr(o) {
+    const a1 = (o.주소 || '').trim();
+    if (!isIncompleteAddr1(a1)) return { ok: true, fixed: false };
+    const d = (o.상세주소 || '').trim();
+    const road = d.match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
+    const jibun = road ? null : d.match(/((?:산\s*)?\d+(?:-\d+)?\s*번지)/);
+    const m = road || jibun;
+    if (!m) return { ok: false, fixed: false };
+    // 도로명 보완이면 끝의 행정동/리 토큰을 뗀다(도로명과 섞이면 검색이 깨짐).
+    // 번지 보완이면 동/리를 남긴다(지번은 동/리가 있어야 위치가 특정됨).
+    let base = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (road) base = base.replace(/\s*[가-힣0-9]+(동|리|읍|면|가)$/, '').trim();
+    o.주소 = (base + ' ' + m[1]).trim();
+    o.상세주소 = d.replace(m[1], '').replace(/\s{2,}/g, ' ').trim(); // 보완에 쓴 토큰은 상세주소에서 제거(중복 방지)
+    return { ok: true, fixed: true };
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -349,6 +376,14 @@
     if (!raw) { toast('담긴 주문이 없어요.\n더망고 주문정보를 먼저 여세요.', false); return; }
     const o = JSON.parse(raw);
 
+    // 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 못 하면 중단(오주소 입력 방지).
+    const fx = fixIncompleteAddr(o);
+    if (!fx.ok) { toast(`주소가 불완전해요(번지/도로명 없음): ${o.주소}\n상세주소에서도 못 찾아 중단 — 직접 입력하세요.`, false); return; }
+    if (fx.fixed) {
+      GM_setValue(STORE_KEY, JSON.stringify(o)); // 우편번호 팝업(runSsgZipcd)이 STORE를 다시 읽으므로 보완 결과를 저장
+      toast(`불완전 주소 보완 검색: ${o.주소}`);
+    }
+
     const nameEl = document.querySelector('#rcptpeNm');
     if (!nameEl) {
       toast("배송지 입력 폼이 안 보여요.\n'새 배송지 추가'를 누른 폼에서 Alt+A.", false);
@@ -386,8 +421,8 @@
       console.warn('[mango_order][ssg] 회사번호 미설정 — ⚙ 망고설정에서 companyPhone 입력 필요');
     }
 
-    // 상세주소(괄호 정리) — 805동 901호 등
-    setNativeValue(document.querySelector('#address_detail'), cleanDetailAddress(o.상세주소));
+    // 상세주소(괄호 정리) — 805동 901호 등. 비어 있으면 '-' (빈 값이면 저장 진행이 멈춤)
+    setNativeValue(document.querySelector('#address_detail'), cleanDetailAddress(o.상세주소) || '-');
 
     toast(`입력 완료: ${o.수령인}\n우편번호 검색→선택→저장 자동 진행 중…`);
 
@@ -437,7 +472,7 @@
     if (!pend || !pend.kw) return;
 
     const order = JSON.parse(GM_getValue(STORE_KEY, '') || '{}');
-    const detail = cleanDetailAddress(order.상세주소);
+    const detail = cleanDetailAddress(order.상세주소) || '-'; // 비어 있으면 '-' (빈 값이면 저장 진행이 멈춤)
     const want = norm(pend.kw);
 
     await waitFor(document, "input[name='searchKeyword']", 5000);
