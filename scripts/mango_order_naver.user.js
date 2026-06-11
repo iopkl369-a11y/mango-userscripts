@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.5
+// @version      0.4.6
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][naver] v0.4.5 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][naver] v0.4.6 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -704,16 +704,8 @@
     const memo = (o.배송메모 || '').trim();
     if (!memo) { toast('배송요청사항이 없어 건너뜁니다.\n(필요하면 직접 선택하세요)'); return; }
 
-    // 0) '출입방법을 설정할 수 있어요'가 떠 있으면 요청사항 입력이 안 먹는다
-    //    → 그 링크를 눌러 설정 화면을 열어주고 중단. 설정 완료 후 다시 Alt+A 하면 정상 진행.
-    const entry = findByTextContains(/출입방법을 설정할 수 있어요/);
-    if (entry) {
-      realClick(entry); try { entry.click(); } catch (e) { /* noop */ }
-      toast("'출입방법 설정'을 먼저 완료해주세요.\n완료 후 다시 Alt+A.", false);
-      return;
-    }
-
-    // 1) '배송메모를 선택해주세요' 드롭다운 열기 (출입방법 설정 유무에 따라 '추가 요청사항…'으로 뜨기도 함)
+    // 1) '배송메모를 선택해주세요' 드롭다운 열기
+    //    ('출입방법을 설정할 수 있어요'가 있으면 라벨이 '추가 요청사항…'으로 뜬다 — 출입방법은 무시하고 진행)
     const opener = findByTextContains(/배송메모를 선택해주세요|배송메모|추가\s*요청사항/) || findClickableByText('배송메모를 선택해주세요');
     if (!opener) { toast("'배송메모' 칸을 못 찾았어요 — 직접 선택하세요.", false); return; }
     realClick(opener); try { opener.click(); } catch (e) { /* noop */ }
