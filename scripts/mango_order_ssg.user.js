@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 SSG 주소 진단 (Brave 전용)
 // @namespace    mango_order
-// @version      0.25.4
+// @version      0.25.5
 // @description  더망고 주문정보의 배송지를 담고, SSG '배송지 추가' 폼에서 Alt+A로 주소별칭 '직접입력' 전환→수령인·주소별칭·휴대폰(회사번호 고정)·상세주소 입력 + 우편번호 팝업 자동검색(괄호 제거·찾기 실행). 배송지 변경 후 결제화면 '택배배송 요청사항'에 배송메모 자동입력. 결제화면에서 Alt+A는 '주문자 정보 변경' 팝업을 열어 주문자명을 수령인명으로 교체. Alt+D는 폼 진단 덤프. ※ '새 배송지 추가'는 직접 누르고 폼에서 Alt+A. ※ Brave 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][ssg] v0.25.4 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][ssg] v0.25.5 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -112,7 +112,7 @@
     const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ');
     let m = t.match(/(\S*(?:로|길))\s*(\d+(?:-\d+)?)(?=\s|$|,)/);
     if (m) return { key: m[1], num: m[2] };
-    m = t.match(/(\S*[가-힣](?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
+    m = t.match(/(\S*[가-힣]\d*(?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
     if (m) return { key: m[1], num: m[2] };
     return null;
   }
@@ -129,7 +129,7 @@
     const m = (detail || '').match(/\(([^)]*)\)/);
     if (!m) return '';
     const tok = m[1].split(',').map((s) => s.trim())
-      .find((s) => s && !/[가-힣](동|리|읍|면|가)$/.test(s));
+      .find((s) => s && !/[가-힣]\d*(동|리|읍|면|가)$/.test(s));
     return tok ? norm(tok) : '';
   }
 
@@ -197,10 +197,10 @@
   function looksLikePlaceOrBuilding(s) {
     const t = (s || '').trim();
     if (!t) return false;
-    // 쉼표/공백으로 쪼갠 토큰 중 '한글+동/리/읍/면/가'로 끝나는 행정동명이 있으면 삭제 대상.
-    // (아파트 '102동'처럼 숫자+동은 제외해 보존 — 네이버/무신사 스크립트와 동일 규칙)
+    // 쉼표/공백으로 쪼갠 토큰 중 '한글(+숫자)+동/리/읍/면/가'로 끝나는 행정동명이 있으면 삭제 대상('문래동6가' 포함).
+    // (아파트 '102동'처럼 숫자로 시작하는 동은 제외해 보존 — 네이버/무신사 스크립트와 동일 규칙)
     const toks = t.split(/[,\s]+/).filter(Boolean);
-    if (toks.some((tk) => /[가-힣](동|리|읍|면|가)$/.test(tk))) return true;
+    if (toks.some((tk) => /[가-힣]\d*(동|리|읍|면|가)$/.test(tk))) return true;
     return BLD_KW.some((kw) => t.includes(kw));
   }
 

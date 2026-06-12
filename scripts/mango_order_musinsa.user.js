@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 무신사 주소 한방입력 (Edge 전용)
 // @namespace    mango_order
-// @version      0.9.6
+// @version      0.9.7
 // @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. ※ Edge 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][musinsa] v0.9.6 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][musinsa] v0.9.7 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 무신사는 안심번호(050x)를 못 받으므로 회사 번호로 대체. 회사번호는 팀 설정값에서 읽는다
@@ -64,7 +64,7 @@
     const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ');
     let m = t.match(/(\S*(?:로|길))\s*(\d+(?:-\d+)?)(?=\s|$|,)/);
     if (m) return { key: m[1], num: m[2] };
-    m = t.match(/(\S*[가-힣](?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
+    m = t.match(/(\S*[가-힣]\d*(?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
     if (m) return { key: m[1], num: m[2] };
     return null;
   }
@@ -81,7 +81,7 @@
     const m = (detail || '').match(/\(([^)]*)\)/);
     if (!m) return '';
     const tok = m[1].split(',').map((s) => s.trim())
-      .find((s) => s && !/[가-힣](동|리|읍|면|가)$/.test(s));
+      .find((s) => s && !/[가-힣]\d*(동|리|읍|면|가)$/.test(s));
     return tok ? norm(tok) : '';
   }
 
@@ -127,10 +127,10 @@
   function looksLikePlaceOrBuilding(s) {
     const t = (s || '').trim();
     if (!t) return false;
-    // 쉼표/공백으로 쪼갠 토큰 중 '한글+동/리/읍/면/가'로 끝나는 행정동명이 있으면 삭제 대상.
-    // (아파트 '102동'처럼 숫자+동은 제외해 보존)
+    // 쉼표/공백으로 쪼갠 토큰 중 '한글(+숫자)+동/리/읍/면/가'로 끝나는 행정동명이 있으면 삭제 대상('문래동6가' 포함).
+    // (아파트 '102동'처럼 숫자로 시작하는 동은 제외해 보존)
     const toks = t.split(/[,\s]+/).filter(Boolean);
-    if (toks.some((tk) => /[가-힣](동|리|읍|면|가)$/.test(tk))) return true;
+    if (toks.some((tk) => /[가-힣]\d*(동|리|읍|면|가)$/.test(tk))) return true;
     return BLD_KW.some((kw) => t.includes(kw));
   }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.8
+// @version      0.4.9
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][naver] v0.4.8 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][naver] v0.4.9 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -72,7 +72,7 @@
     const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ');
     let m = t.match(/(\S*(?:로|길))\s*(\d+(?:-\d+)?)(?=\s|$|,)/);
     if (m) return { key: m[1], num: m[2] };
-    m = t.match(/(\S*[가-힣](?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
+    m = t.match(/(\S*[가-힣]\d*(?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
     if (m) return { key: m[1], num: m[2] };
     return null;
   }
@@ -89,7 +89,7 @@
     const m = (detail || '').match(/\(([^)]*)\)/);
     if (!m) return '';
     const tok = m[1].split(',').map((s) => s.trim())
-      .find((s) => s && !/[가-힣](동|리|읍|면|가)$/.test(s));
+      .find((s) => s && !/[가-힣]\d*(동|리|읍|면|가)$/.test(s));
     return tok ? norm(tok) : '';
   }
 
@@ -344,7 +344,7 @@
     const t = (s || '').trim();
     if (!t) return false;
     const toks = t.split(/[,\s]+/).filter(Boolean);
-    if (toks.some((tk) => /[가-힣](동|리|읍|면|가)$/.test(tk))) return true;
+    if (toks.some((tk) => /[가-힣]\d*(동|리|읍|면|가)$/.test(tk))) return true;
     return BLD_KW.some((kw) => t.includes(kw));
   }
 
