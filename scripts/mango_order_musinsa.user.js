@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 무신사 주소 한방입력 (Edge 전용)
 // @namespace    mango_order
-// @version      0.9.5
+// @version      0.9.6
 // @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. ※ Edge 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][musinsa] v0.9.5 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][musinsa] v0.9.6 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 무신사는 안심번호(050x)를 못 받으므로 회사 번호로 대체. 회사번호는 팀 설정값에서 읽는다
@@ -541,7 +541,11 @@
       const items = document.querySelectorAll('a.link_post, .link_post');
       if (items.length) {
         const cands = [...items].filter((it) => !/link_english|link_btn_map|link_infomation/.test(it.className || ''));
-        const matched = cands.filter((it) => matchesAddr(it.textContent, parts));
+        // ⚠️ 새 카카오 UI(2026-03)는 버튼 안에 영문 주소(.txt_addr_eng)가 한글 주소 바로 뒤에 붙어
+        //    textContent가 '…명륜1길 10' + '10 Myeongnyun…'으로 이어진다 → 번호 경계 검사가 항상 실패.
+        //    한글 주소 스팬(.txt_addr)만 비교한다(스팬이 없으면 구 UI — 전체 텍스트 사용).
+        const korText = (el) => { const k = el.querySelector('.txt_addr'); return k ? k.textContent : el.textContent; };
+        const matched = cands.filter((it) => matchesAddr(korText(it), parts));
         const target = (hint && matched.find((it) => norm(it.textContent).includes(hint))) || matched[0];
         if (target) { target.click(); GM_setValue(PENDING_KEY, ''); return true; }
         // ⚠️ 일치 항목이 없으면 첫 결과를 누르지 않는다(오주소 입력 방지).
