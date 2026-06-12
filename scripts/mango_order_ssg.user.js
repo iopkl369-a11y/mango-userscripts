@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 SSG 주소 진단 (Brave 전용)
 // @namespace    mango_order
-// @version      0.25.3
+// @version      0.25.4
 // @description  더망고 주문정보의 배송지를 담고, SSG '배송지 추가' 폼에서 Alt+A로 주소별칭 '직접입력' 전환→수령인·주소별칭·휴대폰(회사번호 고정)·상세주소 입력 + 우편번호 팝업 자동검색(괄호 제거·찾기 실행). 배송지 변경 후 결제화면 '택배배송 요청사항'에 배송메모 자동입력. 결제화면에서 Alt+A는 '주문자 정보 변경' 팝업을 열어 주문자명을 수령인명으로 교체. Alt+D는 폼 진단 덤프. ※ '새 배송지 추가'는 직접 누르고 폼에서 Alt+A. ※ Brave 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][ssg] v0.25.3 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][ssg] v0.25.4 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -543,7 +543,9 @@
       //  결과행: <tr><th>도로명</th><td><button class=postcode_address_btn onclick="Zipcd.showZipcdDtl(this)">…</button></td><td>우편번호</td></tr>
       const addrBtns = [...document.querySelectorAll('button.postcode_address_btn')];
       const rowText = (b) => { const tr = b.closest('tr'); return tr ? tr.textContent || '' : ''; };
-      const matched = addrBtns.filter((b) => matchesAddr(rowText(b), parts));
+      // ⚠️ 매칭은 행 전체가 아닌 '주소 버튼' 텍스트로 — 행 텍스트는 주소 뒤에 우편번호 td가 붙어
+      //    공백 제거 후 '…로167' + '57777'이 이어지면 번호 경계 검사가 실패한다(무신사 카카오 새 UI와 동일 함정).
+      const matched = addrBtns.filter((b) => matchesAddr(b.textContent, parts));
       const btn = (hint && matched.find((b) => norm(rowText(b)).includes(hint))) || matched[0];
       if (btn) {
         // 인라인 onclick(Zipcd.showZipcdDtl) → 네이티브 click이 가장 확실, 안 되면 핸들러 직접 호출

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.7
+// @version      0.4.8
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][naver] v0.4.7 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][naver] v0.4.8 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -597,7 +597,10 @@
     const hint = buildingHint(o.상세주소);
     const wantZip = (o.우편번호 || '').replace(/\D/g, '');
     const items = [...document.querySelectorAll('li.AddressSearchList_item__wuxp8')];
-    const matched = items.filter((li) => matchesAddr(li.textContent, parts));
+    // ⚠️ 매칭은 li 전체가 아닌 주소 줄(<p>) 단위로 — li 텍스트는 우편번호 등 숫자가 주소 뒤에 붙어
+    //    공백 제거 후 번호 경계 검사가 실패할 수 있다(무신사 카카오 새 UI와 동일 함정). p 없으면 구 동작.
+    const liAddrLines = (li) => { const ps = li.querySelectorAll('p'); return ps.length ? [...ps].map((p) => p.textContent) : [li.textContent]; };
+    const matched = items.filter((li) => liAddrLines(li).some((t) => matchesAddr(t, parts)));
     if (!matched.length) {
       console.warn('[mango_order][naver] 일치하는 검색 결과 없음 — 검색어:', kw,
         '\n후보:', items.map((li) => (li.textContent || '').slice(0, 60)));
