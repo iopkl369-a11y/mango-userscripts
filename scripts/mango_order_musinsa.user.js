@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 무신사 주소 한방입력 (Edge 전용)
 // @namespace    mango_order
-// @version      0.9.4
+// @version      0.9.5
 // @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. ※ Edge 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][musinsa] v0.9.4 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][musinsa] v0.9.5 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 무신사는 안심번호(050x)를 못 받으므로 회사 번호로 대체. 회사번호는 팀 설정값에서 읽는다
@@ -59,17 +59,38 @@
     return digits;
   }
 
-  /** 주소에서 '도로명+건물번호' 핵심 토큰 (결과 매칭용) */
-  function roadToken(addr) {
-    const m = (addr || '').match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
-    return m ? m[1].trim() : (addr || '');
+  /** 주소의 검증용 핵심 토큰 — 도로명+건물번호 또는 동/리+번지. 없으면 null (네이버/SSG 스크립트와 동일) */
+  function addrParts(addr) {
+    const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ');
+    let m = t.match(/(\S*(?:로|길))\s*(\d+(?:-\d+)?)(?=\s|$|,)/);
+    if (m) return { key: m[1], num: m[2] };
+    m = t.match(/(\S*[가-힣](?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
+    if (m) return { key: m[1], num: m[2] };
+    return null;
   }
 
-  /** address1이 번지/도로명 없이 '…동/리' 등으로 끝나는 불완전 주소인가 (네이버/SSG 스크립트와 동일) */
+  /** 후보 텍스트가 핵심 토큰과 '번호 경계까지' 일치하는가 — 42는 42-8/420과 다른 주소 */
+  function matchesAddr(text, parts) {
+    if (!parts) return false;
+    const esc = (s) => norm(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(esc(parts.key) + esc(parts.num) + '(?![\\d-])').test(norm(text));
+  }
+
+  /** 상세주소 괄호 안의 건물명(행정동 제외) — 검색 결과 후보가 여럿일 때 보조 판별용 */
+  function buildingHint(detail) {
+    const m = (detail || '').match(/\(([^)]*)\)/);
+    if (!m) return '';
+    const tok = m[1].split(',').map((s) => s.trim())
+      .find((s) => s && !/[가-힣](동|리|읍|면|가)$/.test(s));
+    return tok ? norm(tok) : '';
+  }
+
+  /** address1이 번지/건물번호 없이 끝나는 불완전 주소인가 (네이버/SSG 스크립트와 동일)
+   *  숫자 뒤 경계(공백/끝/쉼표)를 요구해 '부평대로278번길'(로+278 오인) 같은 도로명 자체 숫자를 배제. */
   function isIncompleteAddr1(addr) {
     const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
-    if (/(로|길)\s*\d/.test(t)) return false;                          // 도로명+건물번호 있음
-    if (/[가-힣0-9](동|리|읍|면|가)\s*(산\s*)?\d/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
+    if (/(로|길)\s*\d+(?:-\d+)?(?=\s|$|,)/.test(t)) return false;                          // 도로명+건물번호 있음
+    if (/[가-힣0-9](동|리|읍|면|가)\s*(?:산\s*)?\d+(?:-\d+)?(?=\s|$|,)/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
     return true;
   }
 
@@ -82,7 +103,17 @@
     const road = d.match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
     const jibun = road ? null : d.match(/((?:산\s*)?\d+(?:-\d+)?\s*번지)/);
     const m = road || jibun;
-    if (!m) return { ok: false, fixed: false };
+    if (!m) {
+      // 상세주소에 도로명/번지가 없어도, addr1이 '…로/…길'(도로명)로 끝나고 상세주소가 순수 숫자
+      // 토큰('42'/'42-8')으로 시작하면 그 숫자를 건물번호로 본다(예: '부평대로278번길' + '42, 102동…').
+      const lead = d.match(/^(\d+(?:-\d+)?)(?=[\s,(]|$)/);
+      let b = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      b = b.replace(/\s*[가-힣0-9]+(동|리|읍|면|가)$/, '').trim();
+      if (!lead || !/(로|길)$/.test(b)) return { ok: false, fixed: false };
+      o.주소 = b + ' ' + lead[1];
+      o.상세주소 = d.slice(lead[1].length).replace(/^[\s,]+/, '').trim();
+      return { ok: true, fixed: true };
+    }
     // 도로명 보완이면 끝의 행정동/리 토큰을 뗀다(도로명과 섞이면 검색이 깨짐).
     // 번지 보완이면 동/리를 남긴다(지번은 동/리가 있어야 위치가 특정됨).
     let base = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -315,7 +346,7 @@
    *  무신사 라디오는 커스텀이라 항목 컨테이너의 .order-address-item__information 을 클릭한다.
    *  기본배송지(명의자 본인)가 선택돼 있으므로 반드시 고객 주소를 골라야 한다. */
   async function selectAddressInList(doc, name, addr) {
-    const road = norm(roadToken(addr));
+    const parts = addrParts(addr);
     const nName = norm(name);
     // 라디오(항목당 1개)를 기준으로 항목 블록을 잡는다 — 클래스명 의존/과다매칭 회피
     const itemBlock = (radio) => {
@@ -352,7 +383,7 @@
         }
       }
       // 1) 이름+도로명 둘 다(동명이인 구분), 없으면 2) 이름만
-      let pick = road && cands.find((c) => c.text.includes(nName) && c.text.includes(road));
+      let pick = parts && cands.find((c) => c.text.includes(nName) && matchesAddr(c.text, parts));
       if (!pick) pick = cands.find((c) => c.text.includes(nName));
       if (pick) { pick.click.click(); return { ok: true, cands }; }
       return { ok: false, cands };
@@ -367,8 +398,8 @@
     // 진단: 매칭 실패 시 이름 후보 텍스트를 콘솔에 덤프 ('[mango_order]'로 검색)
     try {
       const dump = (last || []).map((c) => c.text.slice(0, 50));
-      console.warn('[mango_order] 주소목록 선택 실패 — 찾는값 name=%o road=%o\n이름후보(%d):\n%s',
-        name, road, dump.length, dump.join('\n'));
+      console.warn('[mango_order] 주소목록 선택 실패 — 찾는값 name=%o addr=%o\n이름후보(%d):\n%s',
+        name, addr, dump.length, dump.join('\n'));
     } catch (e) { /* noop */ }
     return false;
   }
@@ -418,8 +449,8 @@
 
     await fillDeliveryRequest(doc, o.배송메모);
 
-    // 카카오에 넘길 도로명/우편번호 저장 후 '주소 찾기' 실행
-    GM_setValue(PENDING_KEY, JSON.stringify({ addr: o.주소, zip: o.우편번호 }));
+    // 카카오에 넘길 도로명/우편번호 저장 후 '주소 찾기' 실행 (detail은 결과 검증의 건물명 힌트용)
+    GM_setValue(PENDING_KEY, JSON.stringify({ addr: o.주소, zip: o.우편번호, detail: o.상세주소 }));
     clickByText(doc, '주소 찾기');
 
     toast(`입력 완료: ${o.수령인}\n주소검색 자동 진행 중…`);
@@ -430,6 +461,10 @@
       toast(`자동 저장 중단 — ${zipRes.reason}\n주소를 직접 선택한 뒤 저장하세요.`, false);
       return;
     }
+
+    // 카카오 선택 후 무신사 폼이 재렌더링되며 상세주소가 비워질 수 있어, 저장 전 다시 확인·입력
+    const addr2El2 = doc.querySelector("input[name='address2']");
+    if (addr2El2 && !(addr2El2.value || '').trim()) setNativeValue(addr2El2, cleanDetailAddress(o.상세주소) || '-');
 
     // ⚠️ 저장하기를 누르면 배송지 '목록' 페이지로 풀 네비게이션(리로드)되어 이 스크립트
     //    컨텍스트가 사라진다. → 목록에서 고를 대상을 저장해두고, 새로 뜬 목록 페이지에서
@@ -497,19 +532,25 @@
     if (!pend || !pend.addr) return;
     // ⚠️ 검색 버튼을 누르면 결과 '페이지'로 전환되며 스크립트가 다시 로드된다.
     //    그래서 PENDING을 미리 소비하지 않고, 결과를 '선택'한 뒤에만 비운다.
-    const road = norm(roadToken(pend.addr));
+    const parts = addrParts(pend.addr);
+    const hint = buildingHint(pend.detail);
+    let noMatchTicks = 0;
 
     const step = () => {
-      // 1) 결과(.link_post)가 있으면 선택 → 끝
+      // 1) 결과(.link_post)가 있으면 '경계까지 일치'하는 항목만 선택 → 끝 (42 ≠ 42-8)
       const items = document.querySelectorAll('a.link_post, .link_post');
       if (items.length) {
         const cands = [...items].filter((it) => !/link_english|link_btn_map|link_infomation/.test(it.className || ''));
-        // 도로명 우선: '로/길 + 공백 + 숫자' 패턴(도로명 링크)을 먼저 고른다.
-        const isRoad = (it) => /(로|길)\s+\d/.test(it.textContent || '');
-        const roadCands = cands.filter(isRoad);
-        const byToken = (arr) => arr.find((it) => road && norm(it.textContent).includes(road));
-        const target = byToken(roadCands) || roadCands[0] || byToken(cands) || cands[0];
+        const matched = cands.filter((it) => matchesAddr(it.textContent, parts));
+        const target = (hint && matched.find((it) => norm(it.textContent).includes(hint))) || matched[0];
         if (target) { target.click(); GM_setValue(PENDING_KEY, ''); return true; }
+        // ⚠️ 일치 항목이 없으면 첫 결과를 누르지 않는다(오주소 입력 방지).
+        //    렌더 지연 대비 잠시 더 기다린 뒤 중단 — 사람이 직접 선택(폼 쪽은 우편번호 타임아웃 토스트).
+        if (cands.length && ++noMatchTicks >= 4) {
+          console.warn('[mango_order][musinsa] 일치하는 카카오 결과 없음 — 직접 선택 필요:', pend.addr);
+          GM_setValue(PENDING_KEY, '');
+          return true;
+        }
       }
       // 2) 검색창이 비어 있으면 주소 입력 후 검색 실행 (→ 결과 페이지로 전환)
       const inp = document.querySelector('#region_name, input.tf_keyword');

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 SSG 주소 진단 (Brave 전용)
 // @namespace    mango_order
-// @version      0.25.2
+// @version      0.25.3
 // @description  더망고 주문정보의 배송지를 담고, SSG '배송지 추가' 폼에서 Alt+A로 주소별칭 '직접입력' 전환→수령인·주소별칭·휴대폰(회사번호 고정)·상세주소 입력 + 우편번호 팝업 자동검색(괄호 제거·찾기 실행). 배송지 변경 후 결제화면 '택배배송 요청사항'에 배송메모 자동입력. 결제화면에서 Alt+A는 '주문자 정보 변경' 팝업을 열어 주문자명을 수령인명으로 교체. Alt+D는 폼 진단 덤프. ※ '새 배송지 추가'는 직접 누르고 폼에서 Alt+A. ※ Brave 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][ssg] v0.25.2 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][ssg] v0.25.3 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -69,11 +69,12 @@
     return (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
   }
 
-  /** address1이 번지/도로명 없이 '…동/리' 등으로 끝나는 불완전 주소인가 (네이버/무신사 스크립트와 동일) */
+  /** address1이 번지/건물번호 없이 끝나는 불완전 주소인가 (네이버/무신사 스크립트와 동일)
+   *  숫자 뒤 경계(공백/끝/쉼표)를 요구해 '부평대로278번길'(로+278 오인) 같은 도로명 자체 숫자를 배제. */
   function isIncompleteAddr1(addr) {
     const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
-    if (/(로|길)\s*\d/.test(t)) return false;                          // 도로명+건물번호 있음
-    if (/[가-힣0-9](동|리|읍|면|가)\s*(산\s*)?\d/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
+    if (/(로|길)\s*\d+(?:-\d+)?(?=\s|$|,)/.test(t)) return false;                          // 도로명+건물번호 있음
+    if (/[가-힣0-9](동|리|읍|면|가)\s*(?:산\s*)?\d+(?:-\d+)?(?=\s|$|,)/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
     return true;
   }
 
@@ -86,7 +87,17 @@
     const road = d.match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
     const jibun = road ? null : d.match(/((?:산\s*)?\d+(?:-\d+)?\s*번지)/);
     const m = road || jibun;
-    if (!m) return { ok: false, fixed: false };
+    if (!m) {
+      // 상세주소에 도로명/번지가 없어도, addr1이 '…로/…길'(도로명)로 끝나고 상세주소가 순수 숫자
+      // 토큰('42'/'42-8')으로 시작하면 그 숫자를 건물번호로 본다(예: '부평대로278번길' + '42, 102동…').
+      const lead = d.match(/^(\d+(?:-\d+)?)(?=[\s,(]|$)/);
+      let b = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      b = b.replace(/\s*[가-힣0-9]+(동|리|읍|면|가)$/, '').trim();
+      if (!lead || !/(로|길)$/.test(b)) return { ok: false, fixed: false };
+      o.주소 = b + ' ' + lead[1];
+      o.상세주소 = d.slice(lead[1].length).replace(/^[\s,]+/, '').trim();
+      return { ok: true, fixed: true };
+    }
     // 도로명 보완이면 끝의 행정동/리 토큰을 뗀다(도로명과 섞이면 검색이 깨짐).
     // 번지 보완이면 동/리를 남긴다(지번은 동/리가 있어야 위치가 특정됨).
     let base = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -94,6 +105,32 @@
     o.주소 = (base + ' ' + m[1]).trim();
     o.상세주소 = d.replace(m[1], '').replace(/\s{2,}/g, ' ').trim(); // 보완에 쓴 토큰은 상세주소에서 제거(중복 방지)
     return { ok: true, fixed: true };
+  }
+
+  /** 주소의 검증용 핵심 토큰 — 도로명+건물번호 또는 동/리+번지. 없으면 null (네이버/무신사 스크립트와 동일) */
+  function addrParts(addr) {
+    const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ');
+    let m = t.match(/(\S*(?:로|길))\s*(\d+(?:-\d+)?)(?=\s|$|,)/);
+    if (m) return { key: m[1], num: m[2] };
+    m = t.match(/(\S*[가-힣](?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
+    if (m) return { key: m[1], num: m[2] };
+    return null;
+  }
+
+  /** 후보 텍스트가 핵심 토큰과 '번호 경계까지' 일치하는가 — 42는 42-8/420과 다른 주소 */
+  function matchesAddr(text, parts) {
+    if (!parts) return false;
+    const esc = (s) => norm(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(esc(parts.key) + esc(parts.num) + '(?![\\d-])').test(norm(text));
+  }
+
+  /** 상세주소 괄호 안의 건물명(행정동 제외) — 검색 결과 후보가 여럿일 때 보조 판별용 */
+  function buildingHint(detail) {
+    const m = (detail || '').match(/\(([^)]*)\)/);
+    if (!m) return '';
+    const tok = m[1].split(',').map((s) => s.trim())
+      .find((s) => s && !/[가-힣](동|리|읍|면|가)$/.test(s));
+    return tok ? norm(tok) : '';
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -160,8 +197,10 @@
   function looksLikePlaceOrBuilding(s) {
     const t = (s || '').trim();
     if (!t) return false;
-    const toks = t.split(/\s+/);
-    if (toks.length === 1 && /[동리가읍면]$/.test(t)) return true;
+    // 쉼표/공백으로 쪼갠 토큰 중 '한글+동/리/읍/면/가'로 끝나는 행정동명이 있으면 삭제 대상.
+    // (아파트 '102동'처럼 숫자+동은 제외해 보존 — 네이버/무신사 스크립트와 동일 규칙)
+    const toks = t.split(/[,\s]+/).filter(Boolean);
+    if (toks.some((tk) => /[가-힣](동|리|읍|면|가)$/.test(tk))) return true;
     return BLD_KW.some((kw) => t.includes(kw));
   }
 
@@ -473,12 +512,14 @@
 
     const order = JSON.parse(GM_getValue(STORE_KEY, '') || '{}');
     const detail = cleanDetailAddress(order.상세주소) || '-'; // 비어 있으면 '-' (빈 값이면 저장 진행이 멈춤)
-    const want = norm(pend.kw);
+    const parts = addrParts(pend.kw);
+    const hint = buildingHint(order.상세주소);
 
     await waitFor(document, "input[name='searchKeyword']", 5000);
 
     const t0 = Date.now();
     let searched = false;
+    let noMatchTicks = 0;
     while (Date.now() - t0 < 20000) {
       // Phase 3: 주소 선택됨 → 상세주소 입력 + '저장'
       const dtl = document.querySelector('#addrDtlInput');
@@ -498,22 +539,22 @@
         }
       }
 
-      // Phase 2: 검색 결과의 '도로명' 주소 버튼 클릭
+      // Phase 2: 검색 결과에서 '도로명/지번+번호'가 경계까지 정확히 일치하는 버튼만 클릭 (42 ≠ 42-8)
       //  결과행: <tr><th>도로명</th><td><button class=postcode_address_btn onclick="Zipcd.showZipcdDtl(this)">…</button></td><td>우편번호</td></tr>
       const addrBtns = [...document.querySelectorAll('button.postcode_address_btn')];
-      const isRoadBtn = (b) => {
-        const tr = b.closest('tr');
-        const th = tr && tr.querySelector('th');
-        const t = tr ? tr.textContent || '' : '';
-        return th && /도로명/.test(th.textContent || '') && (!want || norm(t).includes(want));
-      };
-      const btn = addrBtns.find(isRoadBtn)
-        || addrBtns.find((b) => { const tr = b.closest('tr'); return tr && /\d{5}/.test(tr.textContent || ''); });
+      const rowText = (b) => { const tr = b.closest('tr'); return tr ? tr.textContent || '' : ''; };
+      const matched = addrBtns.filter((b) => matchesAddr(rowText(b), parts));
+      const btn = (hint && matched.find((b) => norm(rowText(b)).includes(hint))) || matched[0];
       if (btn) {
         // 인라인 onclick(Zipcd.showZipcdDtl) → 네이티브 click이 가장 확실, 안 되면 핸들러 직접 호출
         realClick(btn);
         try { btn.click(); } catch (e) { /* noop */ }
         try { if (typeof btn.onclick === 'function') btn.onclick.call(btn); } catch (e) { /* noop */ }
+      } else if (addrBtns.length && ++noMatchTicks >= 4) {
+        // ⚠️ 결과는 떴는데 일치 항목이 없으면 첫 결과를 누르지 않고 중단(오주소 입력 방지) — 사람이 직접 선택.
+        GM_setValue(PENDING_KEY, '');
+        toast(`일치하는 주소가 없어요 — 직접 선택하세요: ${pend.kw}`, false);
+        return;
       }
 
       // Phase 1: 검색창 비어 있으면 검색어 입력 + '찾기'

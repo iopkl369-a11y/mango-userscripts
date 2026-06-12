@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.6
+// @version      0.4.7
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][naver] v0.4.6 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][naver] v0.4.7 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -67,10 +67,30 @@
     return (raw || '').replace(/\D/g, '');
   }
 
-  /** 주소에서 '도로명+건물번호' 핵심 토큰 (musinsa_order.py·무신사 스크립트와 동일) */
-  function roadToken(addr) {
-    const m = (addr || '').match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
-    return m ? m[1].trim() : (addr || '');
+  /** 주소의 검증용 핵심 토큰 — 도로명+건물번호 또는 동/리+번지. 없으면 null (무신사/SSG 스크립트와 동일) */
+  function addrParts(addr) {
+    const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ');
+    let m = t.match(/(\S*(?:로|길))\s*(\d+(?:-\d+)?)(?=\s|$|,)/);
+    if (m) return { key: m[1], num: m[2] };
+    m = t.match(/(\S*[가-힣](?:동|리|읍|면|가))\s*((?:산\s*)?\d+(?:-\d+)?)(?=\s|$|,)/);
+    if (m) return { key: m[1], num: m[2] };
+    return null;
+  }
+
+  /** 후보 텍스트가 핵심 토큰과 '번호 경계까지' 일치하는가 — 42는 42-8/420과 다른 주소 */
+  function matchesAddr(text, parts) {
+    if (!parts) return false;
+    const esc = (s) => norm(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(esc(parts.key) + esc(parts.num) + '(?![\\d-])').test(norm(text));
+  }
+
+  /** 상세주소 괄호 안의 건물명(행정동 제외) — 검색 결과 후보가 여럿일 때 보조 판별용 */
+  function buildingHint(detail) {
+    const m = (detail || '').match(/\(([^)]*)\)/);
+    if (!m) return '';
+    const tok = m[1].split(',').map((s) => s.trim())
+      .find((s) => s && !/[가-힣](동|리|읍|면|가)$/.test(s));
+    return tok ? norm(tok) : '';
   }
 
   /** 주소검색어 — 괄호 '(송도동, …)' 제거 (SSG ssgSearchKeyword와 동일 취지) */
@@ -78,11 +98,12 @@
     return (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
   }
 
-  /** address1이 번지/도로명 없이 '…동/리' 등으로 끝나는 불완전 주소인가 (무신사/SSG 스크립트와 동일) */
+  /** address1이 번지/건물번호 없이 끝나는 불완전 주소인가 (무신사/SSG 스크립트와 동일)
+   *  숫자 뒤 경계(공백/끝/쉼표)를 요구해 '부평대로278번길'(로+278 오인) 같은 도로명 자체 숫자를 배제. */
   function isIncompleteAddr1(addr) {
     const t = (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
-    if (/(로|길)\s*\d/.test(t)) return false;                          // 도로명+건물번호 있음
-    if (/[가-힣0-9](동|리|읍|면|가)\s*(산\s*)?\d/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
+    if (/(로|길)\s*\d+(?:-\d+)?(?=\s|$|,)/.test(t)) return false;                          // 도로명+건물번호 있음
+    if (/[가-힣0-9](동|리|읍|면|가)\s*(?:산\s*)?\d+(?:-\d+)?(?=\s|$|,)/.test(t)) return false; // 지번(동/리 뒤 번지) 있음
     return true;
   }
 
@@ -95,7 +116,17 @@
     const road = d.match(/([가-힣\dA-Za-z]+(?:로|길)\d*[가-힣]*\s*\d+(?:-\d+)?)/);
     const jibun = road ? null : d.match(/((?:산\s*)?\d+(?:-\d+)?\s*번지)/);
     const m = road || jibun;
-    if (!m) return { ok: false, fixed: false };
+    if (!m) {
+      // 상세주소에 도로명/번지가 없어도, addr1이 '…로/…길'(도로명)로 끝나고 상세주소가 순수 숫자
+      // 토큰('42'/'42-8')으로 시작하면 그 숫자를 건물번호로 본다(예: '부평대로278번길' + '42, 102동…').
+      const lead = d.match(/^(\d+(?:-\d+)?)(?=[\s,(]|$)/);
+      let b = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      b = b.replace(/\s*[가-힣0-9]+(동|리|읍|면|가)$/, '').trim();
+      if (!lead || !/(로|길)$/.test(b)) return { ok: false, fixed: false };
+      o.주소 = b + ' ' + lead[1];
+      o.상세주소 = d.slice(lead[1].length).replace(/^[\s,]+/, '').trim();
+      return { ok: true, fixed: true };
+    }
     // 도로명 보완이면 끝의 행정동/리 토큰을 뗀다(도로명과 섞이면 검색이 깨짐).
     // 번지 보완이면 동/리를 남긴다(지번은 동/리가 있어야 위치가 특정됨).
     let base = a1.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -560,17 +591,25 @@
     if (!got) return false;
     await sleep(300);
 
-    // 결과 중 도로명 토큰/우편번호가 일치하는 항목을 점수로 선택
-    const want = norm(roadToken(o.주소));
+    // 결과 중 '도로명/지번+번호'가 경계까지 정확히 일치하는 항목만 후보로 (42 ≠ 42-8/420).
+    // ⚠️ 일치 항목이 없으면 선택하지 않고 실패 반환 — 엉뚱한 첫 결과가 입력되는 것 방지.
+    const parts = addrParts(o.주소);
+    const hint = buildingHint(o.상세주소);
     const wantZip = (o.우편번호 || '').replace(/\D/g, '');
     const items = [...document.querySelectorAll('li.AddressSearchList_item__wuxp8')];
+    const matched = items.filter((li) => matchesAddr(li.textContent, parts));
+    if (!matched.length) {
+      console.warn('[mango_order][naver] 일치하는 검색 결과 없음 — 검색어:', kw,
+        '\n후보:', items.map((li) => (li.textContent || '').slice(0, 60)));
+      return false;
+    }
+    // 일치가 여럿이면 상세주소의 건물명·우편번호가 보이는 항목 우선
     const score = (li) => {
       const t = norm(li.textContent);
-      return (want && t.includes(want) ? 2 : 0) + (wantZip && t.includes(wantZip) ? 1 : 0);
+      return (hint && t.includes(hint) ? 2 : 0) + (wantZip && t.includes(wantZip) ? 1 : 0);
     };
-    items.sort((a, b) => score(b) - score(a));
-    const pick = items[0];
-    if (!pick) return false;
+    matched.sort((a, b) => score(b) - score(a));
+    const pick = matched[0];
     // 결과행의 '선택' 버튼을 누른다(주소 텍스트 클릭이 아님). 없으면 주소 텍스트로 폴백.
     let sel = [...pick.querySelectorAll("button, a, [role='button']")].find((b) => (b.textContent || '').trim() === '선택');
     if (!sel) sel = findClickableByText('선택');
