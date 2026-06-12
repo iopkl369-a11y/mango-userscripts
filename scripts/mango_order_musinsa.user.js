@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 무신사 주소 한방입력 (Edge 전용)
 // @namespace    mango_order
-// @version      0.9.7
+// @version      0.9.8
 // @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. ※ Edge 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][musinsa] v0.9.7 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][musinsa] v0.9.8 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 무신사는 안심번호(050x)를 못 받으므로 회사 번호로 대체. 회사번호는 팀 설정값에서 읽는다
@@ -546,8 +546,19 @@
         //    한글 주소 스팬(.txt_addr)만 비교한다(스팬이 없으면 구 UI — 전체 텍스트 사용).
         const korText = (el) => { const k = el.querySelector('.txt_addr'); return k ? k.textContent : el.textContent; };
         const matched = cands.filter((it) => matchesAddr(korText(it), parts));
-        const target = (hint && matched.find((it) => norm(it.textContent).includes(hint))) || matched[0];
-        if (target) { target.click(); GM_setValue(PENDING_KEY, ''); return true; }
+        let target = (hint && matched.find((it) => norm(it.textContent).includes(hint))) || matched[0];
+        if (target) {
+          // 지번·도로명이 같이 있으면 도로명을 선택(사용자 규칙). 같은 결과 li 안의
+          // 도로명(data-addr_type="R") 버튼으로 교체 — '선택 안함'(.dontknow)은 제외.
+          // (지번을 클릭하면 roadAddress 없이 지번만 넘어가고, 도로명 후보가 2개 이상이면
+          //  선택 목록만 펼쳐져 완료되지 않는다 — Playwright로 확인)
+          const li = target.closest('li');
+          const roads = li ? [...li.querySelectorAll('.txt_address[data-addr_type="R"]:not(.dontknow) .link_post')] : [];
+          if (roads.length && !roads.includes(target)) {
+            target = (hint && roads.find((b) => norm(b.textContent).includes(hint))) || roads[0];
+          }
+          target.click(); GM_setValue(PENDING_KEY, ''); return true;
+        }
         // ⚠️ 일치 항목이 없으면 첫 결과를 누르지 않는다(오주소 입력 방지).
         //    렌더 지연 대비 잠시 더 기다린 뒤 중단 — 사람이 직접 선택(폼 쪽은 우편번호 타임아웃 토스트).
         if (cands.length && ++noMatchTicks >= 4) {
