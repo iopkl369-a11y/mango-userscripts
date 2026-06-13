@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 네이버페이 주소 한방입력 (Chrome/Brave)
 // @namespace    mango_order
-// @version      0.4.9
+// @version      0.5.0
 // @description  더망고 주문정보의 배송지를 담고, 네이버페이 주문서에서 Alt+A로 배송지 신규입력(수령인·연락처(안심번호 그대로)·주소검색·상세주소)→저장→목록선택까지 자동. Alt+D는 폼 진단 덤프. ※ 네이버 전용 브라우저(Chrome/Brave)에 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][naver] v0.4.9 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][naver] v0.5.0 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -96,6 +96,18 @@
   /** 주소검색어 — 괄호 '(송도동, …)' 제거 (SSG ssgSearchKeyword와 동일 취지) */
   function searchKeyword(addr) {
     return (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  /** 불완전 주소에서 검색어로 쓸 건물/아파트명 토큰 — 끝의 건물명 우선, 없으면 힌트/마지막 토큰 (무신사와 동일) */
+  function buildingSearchTerm(o) {
+    const a = (o.주소 || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    const toks = a.split(/\s+/).filter(Boolean);
+    const bld = [...toks].reverse().find((t) => BLD_KW.some((kw) => t.includes(kw)));
+    if (bld) return bld;                          // 예: 상현마을수지센트럴아이파크
+    const hint = buildingHint(o.상세주소);
+    if (hint) return hint;                        // 괄호 안 건물명 힌트
+    const last = [...toks].reverse().find((t) => !/[가-힣]\d*(동|리|읍|면|가)$/.test(t));
+    return last || a;                            // 행정동 제외 마지막 토큰, 없으면 전체
   }
 
   /** address1이 번지/건물번호 없이 끝나는 불완전 주소인가 (무신사/SSG 스크립트와 동일)
@@ -669,10 +681,31 @@
     if (!raw) { toast('담긴 주문이 없어요.\n더망고 주문정보를 먼저 여세요.', false); return; }
     const o = JSON.parse(raw);
 
-    // 0) 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 못 하면 중단(오주소 입력 방지).
+    // 0) 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 보완도 실패하면
+    //    자동선택은 오주소 위험이라 끈다(incomplete). 네이버는 주소를 먼저 골라야 이름·휴대폰 폼이
+    //    나오는 순차형이라, 아직 주소 미선택 상태면 주소검색만 건물명으로 띄워 후보를 보여주고
+    //    사용자가 직접 고른 뒤 다시 Alt+A로 이어서 진행하게 한다(2단계).
     const fx = fixIncompleteAddr(o);
-    if (!fx.ok) { toast(`주소가 불완전해요(번지/도로명 없음): ${o.주소}\n상세주소에서도 못 찾아 중단 — 직접 입력하세요.`, false); return; }
+    const incomplete = !fx.ok;
     if (fx.fixed) toast(`불완전 주소 보완 검색: ${o.주소}`);
+    if (incomplete && !Q('#address-detail') && !Q('#receiver')) {
+      let inp = Q("input[placeholder*='도로명']");
+      if (!inp) {
+        const newBtn = findClickableByText('배송지 신규입력');
+        if (newBtn) { realClick(newBtn); try { newBtn.click(); } catch (e) { /* noop */ } }
+        inp = await waitFor(document, "input[placeholder*='도로명']", 6000);
+      }
+      if (!inp) { toast("주소검색 화면을 못 열었어요.\n'배송지 신규입력'을 누른 뒤 Alt+A.", false); return; }
+      // 건물명으로 검색만 — 결과는 누르지 않는다(불완전 주소라 자동선택은 오주소 위험).
+      const kw = buildingSearchTerm(o);
+      inp.focus();
+      setNativeValue(inp, kw);
+      inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      const searchBtn = findClickableByText('검색');
+      if (searchBtn) { realClick(searchBtn); try { searchBtn.click(); } catch (e) { /* noop */ } }
+      toast(`주소가 불완전 — '${kw}' 검색 후보에서 직접 고른 뒤,\n다시 Alt+A로 이름·휴대폰을 이어서 입력하세요.`, false);
+      return;
+    }
 
     // 1) 주소가 선택된 단계(#address-detail 존재)에 도달시킨다.
     //    네이버: '배송지 신규입력' → 주소검색 → 도로명 선택 → ⓑ'상세주소를 알려주세요'(#address-detail).

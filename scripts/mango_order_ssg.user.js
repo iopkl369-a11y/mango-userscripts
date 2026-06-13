@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         더망고 SSG 주소 진단 (Brave 전용)
 // @namespace    mango_order
-// @version      0.25.6
+// @version      0.25.7
 // @description  더망고 주문정보의 배송지를 담고, SSG '배송지 추가' 폼에서 Alt+A로 주소별칭 '직접입력' 전환→수령인·주소별칭·휴대폰(회사번호 고정)·상세주소 입력 + 우편번호 팝업 자동검색(괄호 제거·찾기 실행). 배송지 변경 후 결제화면 '택배배송 요청사항'에 배송메모 자동입력. 결제화면에서 Alt+A는 '주문자 정보 변경' 팝업을 열어 주문자명을 수령인명으로 교체. Alt+D는 폼 진단 덤프. ※ '새 배송지 추가'는 직접 누르고 폼에서 Alt+A. ※ Brave 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][ssg] v0.25.6 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][ssg] v0.25.7 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 상세주소 괄호 안에서 '삭제 대상'으로 보는 건물/아파트 키워드 (musinsa_order.py _BLD_KW 동일)
@@ -67,6 +67,18 @@
   /** SSG 우편번호 검색어 — 주소에서 괄호 '(금곡동, …아파트)'를 제거(있으면 검색 실패) */
   function ssgSearchKeyword(addr) {
     return (addr || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  /** 불완전 주소에서 검색어로 쓸 건물/아파트명 토큰 — 끝의 건물명 우선, 없으면 힌트/마지막 토큰 (무신사와 동일) */
+  function buildingSearchTerm(o) {
+    const a = (o.주소 || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    const toks = a.split(/\s+/).filter(Boolean);
+    const bld = [...toks].reverse().find((t) => BLD_KW.some((kw) => t.includes(kw)));
+    if (bld) return bld;                          // 예: 상현마을수지센트럴아이파크
+    const hint = buildingHint(o.상세주소);
+    if (hint) return hint;                        // 괄호 안 건물명 힌트
+    const last = [...toks].reverse().find((t) => !/[가-힣]\d*(동|리|읍|면|가)$/.test(t));
+    return last || a;                            // 행정동 제외 마지막 토큰, 없으면 전체
   }
 
   /** address1이 번지/건물번호 없이 끝나는 불완전 주소인가 (네이버/무신사 스크립트와 동일)
@@ -432,9 +444,11 @@
     if (!raw) { toast('담긴 주문이 없어요.\n더망고 주문정보를 먼저 여세요.', false); return; }
     const o = JSON.parse(raw);
 
-    // 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 못 하면 중단(오주소 입력 방지).
+    // 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 보완도 실패하면
+    // 자동선택은 오주소 위험이라 끄고(incomplete), 이름·휴대폰·상세주소만 채운 뒤 건물명으로
+    // 우편번호 팝업 검색만 띄워 사용자가 직접 고르게 한다.
     const fx = fixIncompleteAddr(o);
-    if (!fx.ok) { toast(`주소가 불완전해요(번지/도로명 없음): ${o.주소}\n상세주소에서도 못 찾아 중단 — 직접 입력하세요.`, false); return; }
+    const incomplete = !fx.ok;
     if (fx.fixed) {
       GM_setValue(STORE_KEY, JSON.stringify(o)); // 우편번호 팝업(runSsgZipcd)이 STORE를 다시 읽으므로 보완 결과를 저장
       toast(`불완전 주소 보완 검색: ${o.주소}`);
@@ -449,8 +463,8 @@
     // ── 우편번호 팝업 먼저 열기 (반드시 await 이전!) ──
     // SSG 우편번호 검색은 window.open류라 Alt+A '키 제스처'가 살아있는 동안만 열린다.
     // 아래 '직접입력' await(sleep) 뒤로 미루면 제스처가 풀려 팝업이 차단되므로, 검색어 저장과 팝업 열기를 여기서 먼저 한다.
-    const kw = ssgSearchKeyword(o.주소);
-    GM_setValue(PENDING_KEY, JSON.stringify({ kw: kw, ts: Date.now() }));
+    const kw = incomplete ? buildingSearchTerm(o) : ssgSearchKeyword(o.주소);
+    GM_setValue(PENDING_KEY, JSON.stringify({ kw: kw, ts: Date.now(), searchOnly: incomplete }));
     // 배송지 목록(shpplocList)에서 선택·변경할 대상 — 이름+우편번호로 매칭. 배송메모는 결제화면 자동입력용으로 함께 실어 보냄.
     GM_setValue(APPLY_KEY, JSON.stringify({ name: o.수령인, zip: o.우편번호, memo: o.배송메모 || '', ts: Date.now() }));
     openSsgZipPopup();
@@ -479,6 +493,11 @@
 
     // 상세주소(괄호 정리) — 805동 901호 등. 비어 있으면 '-' (빈 값이면 저장 진행이 멈춤)
     setNativeValue(document.querySelector('#address_detail'), cleanDetailAddress(o.상세주소) || '-');
+
+    if (incomplete) {
+      toast(`주소가 불완전 — 이름·휴대폰·상세주소 입력됨.\n우편번호 팝업에서 '${kw}' 검색결과를 직접 고르고 저장하세요.`, false);
+      return; // 자동 선택·저장 안 함 (사용자가 직접)
+    }
 
     toast(`입력 완료: ${o.수령인}\n우편번호 검색→선택→저장 자동 진행 중…`);
 
@@ -527,6 +546,7 @@
     try { pend = JSON.parse(raw); } catch (e) { return; }
     if (!pend || !pend.kw) return;
 
+    const searchOnly = !!pend.searchOnly; // 불완전 주소: 검색만 하고 결과는 사용자가 직접 선택·저장
     const order = JSON.parse(GM_getValue(STORE_KEY, '') || '{}');
     const detail = cleanDetailAddress(order.상세주소) || '-'; // 비어 있으면 '-' (빈 값이면 저장 진행이 멈춤)
     const parts = addrParts(pend.kw);
@@ -538,8 +558,8 @@
     let searched = false;
     let noMatchTicks = 0;
     while (Date.now() - t0 < 20000) {
-      // Phase 3: 주소 선택됨 → 상세주소 입력 + '저장'
-      const dtl = document.querySelector('#addrDtlInput');
+      // Phase 3: 주소 선택됨 → 상세주소 입력 + '저장' (searchOnly면 자동저장 안 함)
+      const dtl = searchOnly ? null : document.querySelector('#addrDtlInput');
       if (dtl && isVisible(dtl)) {
         if (detail && norm(dtl.value) !== norm(detail)) {
           dtl.focus();
@@ -562,7 +582,7 @@
       const rowText = (b) => { const tr = b.closest('tr'); return tr ? tr.textContent || '' : ''; };
       // ⚠️ 매칭은 행 전체가 아닌 '주소 버튼' 텍스트로 — 행 텍스트는 주소 뒤에 우편번호 td가 붙어
       //    공백 제거 후 '…로167' + '57777'이 이어지면 번호 경계 검사가 실패한다(무신사 카카오 새 UI와 동일 함정).
-      const matched = addrBtns.filter((b) => matchesAddr(b.textContent, parts));
+      const matched = searchOnly ? [] : addrBtns.filter((b) => matchesAddr(b.textContent, parts));
       let btn = (hint && matched.find((b) => norm(rowText(b)).includes(hint))) || matched[0];
       if (btn) btn = preferRoadBtn(btn) || btn; // 지번·도로명 둘 다 있으면 도로명 선택
       if (btn) {
@@ -570,7 +590,7 @@
         realClick(btn);
         try { btn.click(); } catch (e) { /* noop */ }
         try { if (typeof btn.onclick === 'function') btn.onclick.call(btn); } catch (e) { /* noop */ }
-      } else if (addrBtns.length && ++noMatchTicks >= 4) {
+      } else if (!searchOnly && addrBtns.length && ++noMatchTicks >= 4) {
         // ⚠️ 결과는 떴는데 일치 항목이 없으면 첫 결과를 누르지 않고 중단(오주소 입력 방지) — 사람이 직접 선택.
         GM_setValue(PENDING_KEY, '');
         toast(`일치하는 주소가 없어요 — 직접 선택하세요: ${pend.kw}`, false);
@@ -591,6 +611,8 @@
         ['keydown', 'keypress', 'keyup'].forEach((type) =>
           inp.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true })));
         searched = true;
+        // searchOnly면 검색만 하고 종료 — 결과 선택·상세입력·저장은 사용자가 직접.
+        if (searchOnly) { GM_setValue(PENDING_KEY, ''); toast(`주소가 불완전 — 검색결과에서 직접 선택·저장하세요: ${pend.kw}`, false); return; }
       }
 
       await sleep(300);
