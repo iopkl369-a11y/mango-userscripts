@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         더망고 무신사 주소 한방입력 (Edge 전용)
 // @namespace    mango_order
-// @version      0.9.8
-// @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. ※ Edge 브라우저에만 설치.
+// @version      0.9.9
+// @description  더망고 주문정보의 배송지(수령인·연락처·주소·상세주소·배송요청)를 무신사 배송지 폼에 단축키(Alt+A)로 한 번에 옮긴다. 카카오 우편번호 검색·도로명 선택, 저장하기·목록선택·변경하기까지 자동. 불완전 주소(번지/도로명 없음)는 이름·휴대폰·상세주소만 채우고 건물명으로 검색만 띄워 직접 선택. ※ Edge 브라우저에만 설치.
 // @author       PA
 // @match        https://tmg2533.cafe24.com/*
 // @match        https://www.musinsa.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   // 실행 확인용 로그 (콘솔에서 '[mango_order]'로 검색)
-  console.log('[mango_order][musinsa] v0.9.8 loaded @', location.href, 'top=', window.top === window);
+  console.log('[mango_order][musinsa] v0.9.9 loaded @', location.href, 'top=', window.top === window);
 
   // ── 정책 상수 ──────────────────────────────────────────────────────────────
   // 무신사는 안심번호(050x)를 못 받으므로 회사 번호로 대체. 회사번호는 팀 설정값에서 읽는다
@@ -83,6 +83,18 @@
     const tok = m[1].split(',').map((s) => s.trim())
       .find((s) => s && !/[가-힣]\d*(동|리|읍|면|가)$/.test(s));
     return tok ? norm(tok) : '';
+  }
+
+  /** 불완전 주소에서 카카오 검색어로 쓸 건물/아파트명 토큰 — 끝의 건물명 우선, 없으면 힌트/마지막 토큰 */
+  function buildingSearchTerm(o) {
+    const a = (o.주소 || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    const toks = a.split(/\s+/).filter(Boolean);
+    const bld = [...toks].reverse().find((t) => BLD_KW.some((kw) => t.includes(kw)));
+    if (bld) return bld;                          // 예: 상현마을수지센트럴아이파크
+    const hint = buildingHint(o.상세주소);
+    if (hint) return hint;                        // 괄호 안 건물명 힌트
+    const last = [...toks].reverse().find((t) => !/[가-힣]\d*(동|리|읍|면|가)$/.test(t));
+    return last || a;                            // 행정동 제외 마지막 토큰, 없으면 전체
   }
 
   /** address1이 번지/건물번호 없이 끝나는 불완전 주소인가 (네이버/SSG 스크립트와 동일)
@@ -430,9 +442,11 @@
     if (!raw) { toast('담긴 주문이 없어요.\n더망고에서 주문정보를 먼저 여세요.', false); return; }
     const o = JSON.parse(raw);
 
-    // 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 못 하면 중단(오주소 입력 방지).
+    // 주소가 '…동'으로 끝나는 불완전 주소면 상세주소의 도로명/번지로 보완. 보완도 실패하면
+    // 자동선택은 오주소 위험이라 끄고(incomplete), 이름·휴대폰·상세주소만 채운 뒤 건물명으로
+    // 카카오 검색만 띄워 사용자가 직접 고르게 한다.
     const fx = fixIncompleteAddr(o);
-    if (!fx.ok) { toast(`주소가 불완전해요(번지/도로명 없음): ${o.주소}\n상세주소에서도 못 찾아 중단 — 직접 입력하세요.`, false); return; }
+    const incomplete = !fx.ok;
     if (fx.fixed) toast(`불완전 주소 보완 검색: ${o.주소}`);
 
     const doc = findFormDoc();
@@ -449,9 +463,28 @@
 
     await fillDeliveryRequest(doc, o.배송메모);
 
-    // 카카오에 넘길 도로명/우편번호 저장 후 '주소 찾기' 실행 (detail은 결과 검증의 건물명 힌트용)
-    GM_setValue(PENDING_KEY, JSON.stringify({ addr: o.주소, zip: o.우편번호, detail: o.상세주소 }));
+    // 카카오에 넘길 검색어/우편번호 저장 후 '주소 찾기' 실행 (detail은 결과 검증의 건물명 힌트용).
+    // 불완전 주소면 검색어를 건물명으로, searchOnly=true로 넘겨 자동선택을 끈다.
+    const searchAddr = incomplete ? buildingSearchTerm(o) : o.주소;
+    GM_setValue(PENDING_KEY, JSON.stringify({ addr: searchAddr, zip: o.우편번호, detail: o.상세주소, searchOnly: incomplete }));
     clickByText(doc, '주소 찾기');
+
+    if (incomplete) {
+      toast(`주소가 불완전 — 이름·휴대폰·상세주소 입력됨.\n'${searchAddr}' 검색결과에서 주소를 직접 고르고 저장하세요.`, false);
+      // 카카오 선택 후 무신사 재렌더링으로 상세주소가 비워질 수 있어, 주소가 채워지면 1회만 다시 넣는다.
+      const t0d = Date.now();
+      const refill = () => {
+        const a1 = doc.querySelector("input[name='address1'], input[name='zipcode1']");
+        const a2 = doc.querySelector("input[name='address2']");
+        if (a1 && (a1.value || '').trim() && a2 && !(a2.value || '').trim()) {
+          setNativeValue(a2, cleanDetailAddress(o.상세주소) || '-');
+          return;
+        }
+        if (Date.now() - t0d < 120000) setTimeout(refill, 500);
+      };
+      setTimeout(refill, 500);
+      return;
+    }
 
     toast(`입력 완료: ${o.수령인}\n주소검색 자동 진행 중…`);
 
@@ -534,12 +567,14 @@
     //    그래서 PENDING을 미리 소비하지 않고, 결과를 '선택'한 뒤에만 비운다.
     const parts = addrParts(pend.addr);
     const hint = buildingHint(pend.detail);
+    const searchOnly = !!pend.searchOnly; // 불완전 주소: 검색만 하고 결과는 사용자가 직접 선택
     let noMatchTicks = 0;
 
     const step = () => {
       // 1) 결과(.link_post)가 있으면 '경계까지 일치'하는 항목만 선택 → 끝 (42 ≠ 42-8)
+      //    searchOnly면 자동선택 전체를 건너뛴다(후보만 띄워두고 사람이 고름).
       const items = document.querySelectorAll('a.link_post, .link_post');
-      if (items.length) {
+      if (!searchOnly && items.length) {
         const cands = [...items].filter((it) => !/link_english|link_btn_map|link_infomation/.test(it.className || ''));
         // ⚠️ 새 카카오 UI(2026-03)는 버튼 안에 영문 주소(.txt_addr_eng)가 한글 주소 바로 뒤에 붙어
         //    textContent가 '…명륜1길 10' + '10 Myeongnyun…'으로 이어진다 → 번호 경계 검사가 항상 실패.
@@ -574,6 +609,8 @@
         const btn = document.querySelector('button.btn_search');
         if (btn) btn.click();
         else inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+        // searchOnly면 검색만 하고 종료 — PENDING을 비워 결과 페이지 reload 시 재검색·자동선택이 없게 한다.
+        if (searchOnly) { GM_setValue(PENDING_KEY, ''); return true; }
       }
       return false;
     };
